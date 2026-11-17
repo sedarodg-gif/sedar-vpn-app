@@ -935,6 +935,11 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   List<Map<String, dynamic>> _subs = []; // abonnements (nom, lien, ids des serveurs)
   String? _selId;
   int _tab = 0;
+  int _homeSub = 0;
+  bool _fabOpen = false;
+  double _dlPeak = 0;
+  double _ulPeak = 0;
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   // connexion : off | connecting | on
   String _state = 'off';
@@ -1476,6 +1481,8 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   }
 
   void _setOn({int resume = 0}) {
+    _dlPeak = 0;
+    _ulPeak = 0;
     _timeout?.cancel();
     _userStop = false;
     _fails = 0;
@@ -2431,10 +2438,44 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         ),
       );
 
+  SettingsHost _host() => SettingsHost(
+        st: _st,
+        changed: _settingsChanged,
+        logs: () => _logs,
+        clearLogs: () => _logs.clear(),
+        exportAll: () => _openShare(_servers),
+        resetSettings: _resetSettings,
+      );
+
+  void _soon(String what) => _toast('$what : pas dans la première version');
+
+  void _pushPage(Widget w) =>
+      Navigator.push(context, MaterialPageRoute<void>(builder: (_) => w));
+
+  void _newSsh() => _openForm(Server(id: DateTime.now().microsecondsSinceEpoch.toString(), type: 'ssh', port: 22));
+
+  void _newV2() => _openForm(Server(id: DateTime.now().microsecondsSinceEpoch.toString(), type: 'vless', port: 443));
+
+  void _openImportExport() => _openActions('Importer / Exporter', [
+        _PAct(Icons.link, 'Importer un lien', _openImport),
+        _PAct(Icons.qr_code_scanner, 'Scanner un QR code', _scanQr),
+        _PAct(Icons.file_open_outlined, 'Importer un fichier', _importFile),
+        _PAct(Icons.ios_share, 'Exporter (lien, fichier ou QR)', () => _openShare(_servers)),
+        _PAct(Icons.rss_feed, 'Abonnement : ajouter un lien', _addSubDialog),
+        _PAct(Icons.refresh, 'Abonnements : mettre à jour', _updateSubs),
+        for (final sb in _subs)
+          _PAct(Icons.link_off, "Retirer l'abonnement « ${sb['name']} »", () => _removeSub(sb)),
+        _PAct(Icons.save_alt, 'Sauvegarde : enregistrer tout', _backup),
+        _PAct(Icons.settings_backup_restore, 'Sauvegarde : restaurer depuis un fichier', _importFile),
+      ]);
+
   @override
   Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).padding.bottom;
     return Scaffold(
+      key: _scaffoldKey,
       backgroundColor: kBg,
+      drawer: _drawer(),
       body: Stack(
         children: [
           AppBackground(
@@ -2442,32 +2483,19 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
             animate: _st.bgAnim && !MediaQuery.of(context).disableAnimations,
           ),
           SafeArea(
+            bottom: false,
             child: Stack(
               children: [
                 Column(
                   children: [
-                    _topBar(),
-                    Expanded(
-                      child: _tab == 0
-                          // l'accueil tient sur l'écran sans défilement : l'orbe prend la place restante
-                          ? Padding(
-                              padding: const EdgeInsets.fromLTRB(18, 6, 18, 96),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [Expanded(child: _page())],
-                              ),
-                            )
-                          : SingleChildScrollView(
-                              padding: const EdgeInsets.fromLTRB(18, 10, 18, 110),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [_page()],
-                              ),
-                            ),
-                    ),
+                    _appBar(),
+                    if (_tab == 0) _homeTabs(),
+                    Expanded(child: _body(bottomInset)),
                   ],
                 ),
-                Positioned(left: 0, right: 0, bottom: 14, child: Center(child: _nav())),
+                Positioned(left: 0, right: 0, bottom: 0, child: _nav(bottomInset)),
+                if (_tab == 0 && _homeSub == 0)
+                  Positioned(right: 16, bottom: 84 + bottomInset, child: _fab()),
               ],
             ),
           ),
@@ -2476,148 +2504,568 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     );
   }
 
-  Widget _topBar() {
-    return Container(
-      height: 64,
-      margin: const EdgeInsets.fromLTRB(18, 14, 18, 0),
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: glass(r: 32),
-      child: Row(
-        children: [
-          Container(
-            width: 42,
-            height: 42,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(15),
-              border: Border.all(color: Colors.white.withAlpha(40)),
-              gradient: const LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [Color(0x594CC98A), Color(0x1FF2B134)],
-              ),
-              boxShadow: const [BoxShadow(color: Color(0x664CC98A), blurRadius: 16)],
-            ),
-            child: const SizedBox(width: 20, height: 24, child: CustomPaint(painter: GhostPainter())),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: Text.rich(
-                TextSpan(
-                  children: [
-                    const TextSpan(text: 'SEDAR '),
-                    TextSpan(
-                      text: 'VPN',
-                      style: TextStyle(
-                        foreground: Paint()
-                          ..shader = const LinearGradient(
-                            colors: [Color(0xFFF2B134), kCyan],
-                          ).createShader(const Rect.fromLTWH(0, 0, 120, 24)),
-                      ),
-                    ),
-                  ],
-                ),
-                maxLines: 1,
-                style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w700, letterSpacing: -.2),
-              ),
-            ),
-          ),
-          IconButton(
-            tooltip: 'Journal',
-            onPressed: _openLog,
-            icon: const Icon(Icons.receipt_long_outlined, color: kMute),
-          ),
-          IconButton(
-            tooltip: 'Réglages',
-            onPressed: _openSettings,
-            icon: const Icon(Icons.settings_outlined, color: kMute),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _nav() {
-    const icons = [
-      Icons.home_outlined,
-      Icons.language,
-      Icons.shield_outlined,
-      Icons.bar_chart,
-      Icons.person_outline,
-    ];
-    const labels = ['Accueil', 'Serveurs', 'Protection', 'Stats', 'Profil'];
-    return Container(
-      width: 370,
-      height: 66,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(33),
-        color: const Color(0xD9081A12),
-        border: Border.all(color: Colors.white.withAlpha(36)),
-        boxShadow: [BoxShadow(color: Colors.black.withAlpha(140), blurRadius: 30, offset: const Offset(0, 12))],
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          for (var i = 0; i < icons.length; i++)
-            Semantics(
-              button: true,
-              label: labels[i],
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => setState(() => _tab = i),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 220),
-                  height: 48,
-                  padding: EdgeInsets.symmetric(horizontal: _tab == i ? 16 : 12),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(24),
-                    gradient: _tab == i
-                        ? const LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [Color(0xFF2FB878), Color(0xFF16774A)],
-                          )
-                        : null,
-                    boxShadow: _tab == i
-                        ? const [BoxShadow(color: Color(0xA616774A), blurRadius: 18, offset: Offset(0, 6))]
-                        : null,
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(icons[i], size: 24, color: _tab == i ? Colors.white : kMute),
-                      if (_tab == i) ...[
-                        const SizedBox(width: 6),
-                        Text(labels[i],
-                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _page() {
+  Widget _body(double bottomInset) {
+    final pad = EdgeInsets.fromLTRB(14, 10, 14, 120 + bottomInset);
     switch (_tab) {
       case 1:
-        return _serversPage();
+        return SingleChildScrollView(
+          padding: pad,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [_serversPage()]),
+        );
       case 2:
-        return _shieldPage();
+        return Padding(
+          padding: EdgeInsets.only(bottom: 80 + bottomInset),
+          child: SettingsPage(host: _host(), embedded: true),
+        );
       case 3:
-        return _statsPage();
-      case 4:
-        return _profilePage();
+        return SingleChildScrollView(padding: pad, child: _guidePage());
       default:
-        return _homePage();
+        if (_homeSub == 1) {
+          return Padding(
+            padding: EdgeInsets.fromLTRB(14, 10, 14, 90 + bottomInset),
+            child: _journalPage(),
+          );
+        }
+        return SingleChildScrollView(padding: pad, child: _homePage());
     }
+  }
+
+  Widget _appBar() {
+    final titles = ['SEDAR VPN', 'Profils', 'Réglages', 'Guide'];
+    return Container(
+      height: 56,
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      decoration: const BoxDecoration(
+        color: Color(0xE60B1912),
+        border: Border(bottom: BorderSide(color: Color(0x33FFFFFF))),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            tooltip: 'Menu',
+            onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+            icon: const Icon(Icons.menu, color: Colors.white),
+          ),
+          Expanded(
+            child: _tab == 0
+                ? Text.rich(
+                    const TextSpan(children: [
+                      TextSpan(text: 'SEDAR ', style: TextStyle(fontWeight: FontWeight.w800)),
+                      TextSpan(text: 'VPN', style: TextStyle(color: kCyan, fontWeight: FontWeight.w800)),
+                    ]),
+                    maxLines: 1,
+                    style: const TextStyle(fontSize: 21),
+                  )
+                : Text(titles[_tab], style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w700)),
+          ),
+          if (_tab == 1) ...[
+            IconButton(
+              tooltip: 'Ajouter',
+              onPressed: () => _openForm(null),
+              icon: const Icon(Icons.add, color: Colors.white),
+            ),
+            IconButton(
+              tooltip: 'Coller un lien',
+              onPressed: _pasteImport,
+              icon: const Icon(Icons.content_paste, color: Colors.white),
+            ),
+          ],
+          PopupMenuButton<String>(
+            tooltip: "Plus d'options",
+            icon: const Icon(Icons.more_vert, color: Colors.white),
+            color: const Color(0xFF16231C),
+            onSelected: (v) {
+              switch (v) {
+                case 'ie':
+                  _openImportExport();
+                  break;
+                case 'test':
+                  _testAll();
+                  break;
+                case 'diag':
+                  _openDiag();
+                  break;
+                case 'about':
+                  _showInfo('SEDAR VPN $kAppVersion', 'Créé par Charles Sedar Ouedraogo.\nMoteurs : Xray-core et SSH.');
+                  break;
+              }
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem<String>(value: 'ie', child: Text('Importer / Exporter')),
+              PopupMenuItem<String>(value: 'test', child: Text('Tout tester')),
+              PopupMenuItem<String>(value: 'diag', child: Text('Diagnostic')),
+              PopupMenuItem<String>(value: 'about', child: Text('À propos')),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _homeTabs() {
+    Widget t(String label, int i) => Expanded(
+          child: InkWell(
+            onTap: () => setState(() => _homeSub = i),
+            child: Container(
+              height: 44,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(color: _homeSub == i ? kRed : Colors.transparent, width: 3),
+                ),
+              ),
+              child: Text(label,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: _homeSub == i ? kRed : kMute,
+                  )),
+            ),
+          ),
+        );
+    return Container(
+      color: const Color(0xCC0B1912),
+      child: Row(children: [t('Accueil', 0), t('Journal', 1)]),
+    );
+  }
+
+  Widget _nav(double bottomInset) {
+    const icons = [Icons.home_outlined, Icons.view_list_outlined, Icons.settings_outlined, Icons.menu_book_outlined];
+    const labels = ['Accueil', 'Profils', 'Réglages', 'Guide'];
+    return Container(
+      padding: EdgeInsets.only(bottom: bottomInset),
+      decoration: const BoxDecoration(
+        color: Color(0xFF0E1B14),
+        border: Border(top: BorderSide(color: Color(0x33FFFFFF))),
+      ),
+      child: SizedBox(
+        height: 68,
+        child: Row(
+          children: [
+            for (var i = 0; i < icons.length; i++)
+              Expanded(
+                child: Semantics(
+                  button: true,
+                  label: labels[i],
+                  child: InkWell(
+                    onTap: () => setState(() {
+                      _tab = i;
+                      _fabOpen = false;
+                    }),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 180),
+                          width: 58,
+                          height: 30,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(15),
+                            color: _tab == i ? const Color(0xFF1D3D2D) : Colors.transparent,
+                          ),
+                          child: Icon(icons[i], size: 22, color: _tab == i ? kRed : kMute),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(labels[i],
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: _tab == i ? FontWeight.w700 : FontWeight.w500,
+                              color: _tab == i ? Colors.white : kMute,
+                            )),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _miniFab(String label, IconData ic, VoidCallback on) => Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: const Color(0xFF16231C),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(label, style: const TextStyle(fontSize: 13)),
+            ),
+            const SizedBox(width: 10),
+            SizedBox(
+              width: 44,
+              height: 44,
+              child: FloatingActionButton(
+                heroTag: 'mini_$label',
+                mini: true,
+                backgroundColor: const Color(0xFF1D3D2D),
+                foregroundColor: const Color(0xFF8EE0B7),
+                onPressed: () {
+                  setState(() => _fabOpen = false);
+                  on();
+                },
+                child: Icon(ic, size: 22),
+              ),
+            ),
+          ],
+        ),
+      );
+
+  Widget _fab() {
+    final on = _state == 'on';
+    final busy = _state == 'connecting';
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        if (_fabOpen) ...[
+          _miniFab('Réinitialiser', Icons.refresh, () => _reconnect('manuel')),
+          _miniFab(on || busy ? 'Arrêter' : 'Démarrer', on || busy ? Icons.stop : Icons.play_arrow, _toggle),
+          _miniFab('Ajouter aux profils', Icons.add, () => _openForm(null)),
+        ],
+        SizedBox(
+          width: 60,
+          height: 60,
+          child: FloatingActionButton(
+            heroTag: 'main_fab',
+            backgroundColor: on ? const Color(0xFFE5675A) : const Color(0xFF1D3D2D),
+            foregroundColor: on ? Colors.white : const Color(0xFF8EE0B7),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+            onPressed: () => setState(() => _fabOpen = !_fabOpen),
+            child: Icon(_fabOpen ? Icons.close : (on ? Icons.stop : Icons.play_arrow), size: 30),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _drawerItem(String k, String title, VoidCallback on, {bool soon = false}) => InkWell(
+        onTap: () {
+          Navigator.pop(context);
+          on();
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          child: Row(
+            children: [
+              Container(
+                width: 30,
+                height: 30,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1D3D2D),
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: Text(k, style: const TextStyle(color: Color(0xFF8EE0B7), fontWeight: FontWeight.w700)),
+              ),
+              const SizedBox(width: 16),
+              Expanded(child: Text(title, style: const TextStyle(fontSize: 16))),
+              if (soon)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: kCyan.withAlpha(40),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text('bientôt', style: TextStyle(color: kCyan, fontSize: 11)),
+                ),
+            ],
+          ),
+        ),
+      );
+
+  Widget _drawerTitle(String t) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
+        child: Text(t, style: const TextStyle(color: kRed, fontWeight: FontWeight.w700, fontSize: 13)),
+      );
+
+  Widget _drawer() {
+    return Drawer(
+      backgroundColor: const Color(0xFF0B1912),
+      child: SafeArea(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            Container(
+              padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(colors: [Color(0xFF14583A), Color(0xFF0B1912)]),
+              ),
+              child: Row(
+                children: [
+                  const SizedBox(width: 44, height: 52, child: CustomPaint(painter: GhostPainter())),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('SEDAR VPN', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+                        Text('$kAppVersion · par Charles Sedar Ouedraogo',
+                            style: const TextStyle(color: kMute, fontSize: 12)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            _drawerTitle('Général'),
+            _drawerItem('☁', 'Cloud SEDAR', () => _soon('Cloud SEDAR'), soon: true),
+            _drawerTitle('Connexion'),
+            _drawerItem('S', 'SSH', _newSsh),
+            _drawerItem('V', 'V2Ray', _newV2),
+            _drawerItem('P', 'Psiphon', () => _soon('Psiphon'), soon: true),
+            _drawerItem('O', 'OpenVPN', () => _soon('OpenVPN'), soon: true),
+            _drawerItem('U', 'UDP Custom', () => _soon('UDP Custom'), soon: true),
+            _drawerTitle('Outils'),
+            _drawerItem('◎', "Chasseur d'IP", () => _pushPage(const IpPage())),
+            _drawerItem('∿', 'Auto Ping', () => _soon('Auto Ping'), soon: true),
+            _drawerItem('≋', 'Partage de connexion', () => _soon('Partage de connexion'), soon: true),
+            _drawerItem('⛓', 'Lien court', () => _soon('Lien court'), soon: true),
+            _drawerItem('⚡', 'Test de vitesse', () => _pushPage(const SpeedPage())),
+            _drawerItem('✓', 'Vérificateur de réponse', () => _pushPage(const ResponsePage())),
+            _drawerItem('+', 'Diagnostic de connexion', _openDiag),
+            _drawerItem('▯', "ID de l'appareil", () => setState(() => _tab = 2)),
+            _drawerItem('i', 'À propos',
+                () => _showInfo('SEDAR VPN $kAppVersion', 'Créé par Charles Sedar Ouedraogo.\nMoteurs : Xray-core et SSH.')),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _card(String title, Widget child, {Widget? trailing}) => Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: const Color(0xE616231C),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFF294136)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              Expanded(child: Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700))),
+              if (trailing != null) trailing,
+            ]),
+            const SizedBox(height: 10),
+            child,
+          ],
+        ),
+      );
+
+  Widget _navChip(String label, VoidCallback on, {bool soon = false}) => InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: on,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: soon ? const Color(0xFF294136) : kRed.withAlpha(150)),
+            color: soon ? Colors.transparent : const Color(0xFF1D3D2D),
+          ),
+          child: Text(label, style: TextStyle(fontSize: 14, color: soon ? kMute : Colors.white)),
+        ),
+      );
+
+  Widget _trafficCol(IconData ic, String label, double v, double peak, Color c) {
+    final sp = speedParts(v);
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('${label}', style: TextStyle(fontSize: 12, color: c)),
+          const SizedBox(height: 2),
+          Text.rich(TextSpan(children: [
+            TextSpan(
+                text: sp.v,
+                style: const TextStyle(
+                    fontSize: 28, fontWeight: FontWeight.w600, fontFeatures: [FontFeature.tabularFigures()])),
+            TextSpan(text: ' ${sp.u}', style: const TextStyle(fontSize: 13, color: kMute)),
+          ])),
+          Text('Pic ${fmtRate(peak)}', style: const TextStyle(fontSize: 12, color: kMute)),
+        ],
+      ),
+    );
+  }
+
+  Widget _legend(String t, Color c) => Row(mainAxisSize: MainAxisSize.min, children: [
+        Container(width: 14, height: 3, color: c),
+        const SizedBox(width: 6),
+        Text(t, style: const TextStyle(fontSize: 11, color: kMute)),
+      ]);
+
+  Widget _homePage() {
+    final s = _selected;
+    if (_dlShown > _dlPeak) _dlPeak = _dlShown;
+    if (_ulShown > _ulPeak) _ulPeak = _ulShown;
+    final on = _state == 'on';
+    final busy = _state == 'connecting';
+    final stColor = on ? const Color(0xFF2FD27E) : (busy ? kAmber : kMute);
+    final stText = on ? 'Connecté ${_fmt(_sec)}' : (busy ? 'Connexion en cours...' : 'Inactif');
+    final where = s == null
+        ? 'Aucun profil : ajoute-en un'
+        : (s.locked || s.lockSsh ? s.name : '${s.name} · ${s.host}:${s.port}');
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _card(
+          'Trafic',
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(children: [
+                _trafficCol(Icons.arrow_downward, '↓ Téléchargement', _dlShown, _dlPeak, kRed),
+                _trafficCol(Icons.arrow_upward, '↑ Envoi', _ulShown, _ulPeak, const Color(0xFFF08A80)),
+              ]),
+              const SizedBox(height: 10),
+              SizedBox(
+                height: 78,
+                child: CustomPaint(
+                  painter: ChartPainter(List<double>.from(_dlData), List<double>.from(_ulData)),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Wrap(spacing: 14, runSpacing: 4, children: [
+                _legend('↓ Téléchargement', kRed),
+                _legend('↑ Envoi', const Color(0xFFF08A80)),
+                const Text('60 dernières secondes', style: TextStyle(fontSize: 11, color: kMute)),
+              ]),
+              const SizedBox(height: 12),
+              Center(
+                child: GestureDetector(
+                  onTap: on ? _checkNet : null,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      color: stColor.withAlpha(30),
+                      border: Border.all(color: stColor.withAlpha(120)),
+                    ),
+                    child: Text(stText, style: TextStyle(color: stColor, fontWeight: FontWeight.w600)),
+                  ),
+                ),
+              ),
+              if (on) ...[const SizedBox(height: 10), Center(child: _statusLine())],
+              const SizedBox(height: 10),
+              Row(children: [
+                const Icon(Icons.public, size: 18, color: kMute),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(where,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 13, color: kMute)),
+                ),
+              ]),
+            ],
+          ),
+        ),
+        _card(
+          'Connexion principale',
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (s != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Row(children: [
+                    _tag(kTypeNames[s.type] ?? s.type),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(s.name,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+                    ),
+                    TextButton(onPressed: () => setState(() => _tab = 1), child: const Text('Voir')),
+                  ]),
+                ),
+              Wrap(spacing: 8, runSpacing: 8, children: [
+                _navChip('Profils', () => setState(() => _tab = 1)),
+                _navChip('SSH', _newSsh),
+                _navChip('V2Ray', _newV2),
+                _navChip('Psiphon', () => _soon('Psiphon'), soon: true),
+                _navChip('OpenVPN', () => _soon('OpenVPN'), soon: true),
+                _navChip('UDP Custom', () => _soon('UDP Custom'), soon: true),
+              ]),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _journalPage() {
+    final lines = List<String>.from(_logs);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(children: [
+          OutlinedButton(
+            onPressed: () => _copy(lines.join('\n')),
+            child: const Text('Copier'),
+          ),
+          const SizedBox(width: 8),
+          OutlinedButton(
+            onPressed: () => setState(() => _logs.clear()),
+            child: const Text('Effacer'),
+          ),
+          const Spacer(),
+          Text('${lines.length} ligne(s)', style: const TextStyle(color: kMute, fontSize: 12)),
+        ]),
+        const SizedBox(height: 10),
+        Expanded(
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xE6070F0B),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFF294136)),
+            ),
+            child: lines.isEmpty
+                ? const Text('Journal vide.', style: TextStyle(color: kMute))
+                : ListView.builder(
+                    reverse: true,
+                    itemCount: lines.length,
+                    itemBuilder: (_, i) => Padding(
+                      padding: const EdgeInsets.only(bottom: 3),
+                      child: Text(lines[lines.length - 1 - i],
+                          style: const TextStyle(fontFamily: 'monospace', fontSize: 12, height: 1.35)),
+                    ),
+                  ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _guideBlock(String title, String body) => _card(
+        title,
+        Text(body, style: const TextStyle(fontSize: 13.5, height: 1.5, color: Color(0xFFD5E5DB))),
+      );
+
+  Widget _guidePage() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _guideBlock('Démarrer',
+            "1. Ajoute un profil : menu SSH ou V2Ray, ou colle un lien (icône presse-papiers dans Profils).\n2. Choisis-le dans la liste Profils.\n3. Sur l'Accueil, touche le bouton ▶ puis « Démarrer »."),
+        _guideBlock('Balises du payload',
+            "[crlf] retour à la ligne\n[cr] [lf] [lfcr] variantes de saut de ligne\n[host] [port] [host_port] adresse du serveur\n[protocol] protocole\n[netData] requête CONNECT vers le serveur\n[ua] User-Agent\n[split] coupe la requête en deux envois\n[instant_split] coupe sans attendre\n[delay_split] coupe avec une pause"),
+        _guideBlock('Méthodes SSH',
+            "Standard, Payload, TLS/SNI, WebSocket et SlowDNS (DNSTT). UDPGW permet les appels et jeux UDP, il demande un serveur avec badvpn-udpgw."),
+        _guideBlock('V2Ray',
+            "VMess, VLESS, Trojan et Shadowsocks, avec TCP, WebSocket, gRPC, HTTPUpgrade et TLS ou Reality."),
+        _guideBlock('Partager un profil',
+            "Dans Profils, menu ⋮ puis Importer / Exporter : lien, QR code ou fichier .sedar. Tu peux verrouiller le profil, fixer une date d'expiration et le lier à un appareil. Ces protections sont vérifiées dans l'appli seulement."),
+        _guideBlock('Si Internet ne passe pas',
+            "Regarde l'onglet Journal, puis le diagnostic dans le menu ⋮. Vérifie le payload, le SNI et le proxy, ou essaie un autre profil."),
+      ],
+    );
   }
 
   Widget _orb(double size) {
@@ -2779,103 +3227,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
           ),
         ],
       ),
-    );
-  }
-
-  Widget _homePage() {
-    final s = _selected;
-    final label = _state == 'connecting'
-        ? 'CONNEXION EN COURS'
-        : (_state == 'on' ? 'TOUCHE POUR DÉCONNECTER' : 'TOUCHE POUR TE CONNECTER');
-    return Column(
-      children: [
-        const SizedBox(height: 4),
-        _statusPill(),
-        Expanded(
-          child: LayoutBuilder(
-            builder: (ctx, b) {
-              final side = [b.maxHeight - 8, b.maxWidth, _st.orbSize].reduce((x, y) => x < y ? x : y);
-              return Center(child: _orb(side < 60 ? 60.0 : side));
-            },
-          ),
-        ),
-        Text(label,
-            style: const TextStyle(
-                fontSize: 11, letterSpacing: 3, color: kMute, fontWeight: FontWeight.w500)),
-        const SizedBox(height: 4),
-        ShaderMask(
-          shaderCallback: (r) => const LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Colors.white, Color(0xFFF2B134)],
-          ).createShader(r),
-          child: Text(
-            _fmt(_sec),
-            style: const TextStyle(
-              fontSize: 44,
-              fontWeight: FontWeight.w500,
-              letterSpacing: -1,
-              color: Colors.white,
-              fontFeatures: [FontFeature.tabularFigures()],
-            ),
-          ),
-        ),
-        const SizedBox(height: 6),
-        _statusLine(),
-        const SizedBox(height: 10),
-        Row(children: [
-          Expanded(child: _rateCard(Icons.arrow_downward, 'Téléchargement', _dlShown, kCyan)),
-          const SizedBox(width: 10),
-          Expanded(child: _rateCard(Icons.arrow_upward, 'Envoi', _ulShown, kRed)),
-        ]),
-        const SizedBox(height: 10),
-        GestureDetector(
-          onTap: () => setState(() => _tab = 1),
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            decoration: glass(r: 22),
-            child: s == null
-                ? const Text("Aucun serveur : appuie pour en ajouter",
-                    textAlign: TextAlign.center, style: TextStyle(color: kMute))
-                : Row(children: [
-                    _tag(kTypeNames[s.type] ?? s.type),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(s.name,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontWeight: FontWeight.w600)),
-                    ),
-                    const Icon(Icons.chevron_right, color: kMute),
-                  ]),
-          ),
-        ),
-        const SizedBox(height: 10),
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: glass(),
-          child: Column(
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('TRAFIC RÉSEAU',
-                      style: TextStyle(fontWeight: FontWeight.w700, letterSpacing: 1, fontSize: 13)),
-                  _tag('live'),
-                ],
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                height: 64,
-                width: double.infinity,
-                child: CustomPaint(
-                  painter: ChartPainter(List<double>.from(_dlData), List<double>.from(_ulData)),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
     );
   }
 

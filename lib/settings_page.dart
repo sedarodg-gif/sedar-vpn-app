@@ -209,7 +209,8 @@ String _secLabel(int s) => s == 0 ? 'Jamais' : '$s s';
 
 class SettingsPage extends StatefulWidget {
   final SettingsHost host;
-  const SettingsPage({super.key, required this.host});
+  final bool embedded;
+  const SettingsPage({super.key, required this.host, this.embedded = false});
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -278,16 +279,14 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   Widget build(BuildContext context) {
     final h = widget.host;
-    return CsoPage(
-      title: 'Réglages',
-      child: ListView(
+    final list = ListView(
         padding: const EdgeInsets.fromLTRB(18, 0, 18, 30),
         children: [
           sTitle('Général'),
           sTile(
             icon: Icons.palette_outlined,
             title: 'Thème et personnalisation',
-            sub: "Ambiance de l'application : Violet, Océan, Rose, Émeraude, Or, Rouge ou Noir",
+            sub: "Ambiance de l'application : Émeraude, Or, Océan, Rose, Rouge, Violet ou Noir",
             trailing: _chev(),
             onTap: () => _push(context, ThemePage(host: h)),
           ),
@@ -472,8 +471,8 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ),
         ],
-      ),
     );
+    return widget.embedded ? list : CsoPage(title: 'Réglages', child: list);
   }
 }
 
