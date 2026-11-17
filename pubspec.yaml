@@ -1,0 +1,26 @@
+name: vpn
+description: SEDAR VPN - client VPN (VLESS, VMess, Trojan, Shadowsocks)
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_vless: 1.1.5
+  shared_preferences: ^2.2.0
+  dartssh2: ^4.1.0
+  mobile_scanner: 5.2.3
+  qr_flutter: 4.1.0
+
+dependency_overrides:
+  flutter_vless_android: 1.1.5
+  flutter_vless_macos: 1.1.5
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/splash.jpg
+    - assets/creator.png

@@ -1,0 +1,41 @@
+name: Build APK
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.9
+          channel: stable
+      - name: Generer la partie Android
+        run: flutter create --platforms=android --org com.sedar --project-name vpn .
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - name: Compiler le client DNSTT (facultatif)
+        continue-on-error: true
+        run: |
+          git clone --depth 1 https://github.com/Mygod/dnstt /tmp/dnstt
+          cd /tmp/dnstt/dnstt-client
+          mkdir -p "$GITHUB_WORKSPACE/android/app/src/main/jniLibs/arm64-v8a" "$GITHUB_WORKSPACE/android/app/src/main/jniLibs/armeabi-v7a"
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o "$GITHUB_WORKSPACE/android/app/src/main/jniLibs/arm64-v8a/libdnstt.so" .
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags="-s -w" -o "$GITHUB_WORKSPACE/android/app/src/main/jniLibs/armeabi-v7a/libdnstt.so" .
+          ls -la "$GITHUB_WORKSPACE"/android/app/src/main/jniLibs/*/
+      - name: Adapter Android pour le VPN
+        run: python3 tool/patch_android.py
+      - run: rm -rf test
+      - run: flutter pub get
+      - run: flutter build apk --release --no-shrink
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sedar-vpn-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
